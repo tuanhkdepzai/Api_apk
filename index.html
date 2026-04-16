@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dự Đoán LC79</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { background: #0c1a2a; font-family: Arial, sans-serif; color: white; margin: 0; padding: 20px; }
+    .wrapper { max-width: 400px; margin: auto; background: #001a33; padding: 20px; border-radius: 15px; box-shadow: 0 0 20px #00ff00; }
+    h2 { text-align: center; color: #00ccff; margin-bottom: 10px; font-size: 20px; }
+
+    .circle {
+      width: 100px; height: 100px; border-radius: 50%;
+      border: 3px solid #00aaff;
+      display: flex; justify-content: center; align-items: center;
+      font-size: 24px; font-weight: bold;
+      margin: 15px auto;
+      background-color: black;
+      transition: all 0.3s ease;
+    }
+
+    .glow-effect {
+      animation: blink-glow 1s ease-in-out;
+    }
+
+    @keyframes blink-glow {
+      0% { box-shadow: 0 0 0px #00ff00; border-color: #00aaff; transform: scale(1); }
+      50% { box-shadow: 0 0 30px #00ff00; border-color: #00ff00; transform: scale(1.1); }
+      100% { box-shadow: 0 0 0px #00ff00; border-color: #00aaff; transform: scale(1); }
+    }
+
+    .status { text-align: center; color: #66ccff; font-size: 13px; margin-bottom: 5px; }
+    .time { text-align: center; font-size: 15px; margin-bottom: 10px; color: #aaa; }
+
+    table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 8px 4px; text-align: center; border-bottom: 1px solid #003366; }
+    th { background: #003f66; color: #00ccff; }
+
+    .win { color: #00ff00; font-weight: bold; }
+    .lose { color: #ff3333; font-weight: bold; }
+  </style>
+</head>
+
+<body>
+<div class="wrapper">
+  <h2>DỰ ĐOÁN LC 79</h2>
+
+  <div id="phienText" class="status">Đang lấy dữ liệu...</div>
+  <div class="circle" id="prediction">--</div>
+
+  <div id="pattern-display" style="text-align:center; font-size:10px; color:#555;">Chuỗi: ---</div>
+  <div id="ai-analysis" style="text-align:center; font-size:11px; color:#00ff00;">...</div>
+
+  <div class="status" id="status">ĐANG KẾT NỐI...</div>
+  <div class="time" id="clock">--:--</div>
+
+  <div id="stats" style="text-align:center; font-size:12px; margin-top:5px; color:#00ffcc;">
+    Win: 0 | Lose: 0 | Rate: 0%
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Phiên</th>
+        <th>Dự đoán</th>
+        <th>Kết quả</th>
+        <th>KQ</th>
+      </tr>
+    </thead>
+    <tbody id="history"></tbody>
+  </table>
+</div>
+
+<script>
+const apiURL = "https://wtx.tele68.com/v1/tx/lite-sessions?cp=R&cl=R&pf=web&at=ac66e2c04bff27faef086d365f9b6897";
+
+let lastSessionId = 0;
+let predictions = {};
+let winCount = 0;
+let loseCount = 0;
+
+// ===== AI =====
+function aiEngine(list) {
+
+    if (list.length < 10) {
+        return { side: Math.random()<0.5?"T":"X", reason: "Thiếu dữ liệu" };
+    }
+
+    let data = list.slice(0,15).reverse().map(i => i.resultTruyenThong==="TAI"?1:0);
+    let last = data[data.length-1];
+    let opposite = 1-last;
+    let map = {1:"T",0:"X"};
+
+    let tai = data.filter(x=>x===1).length;
+    let xiu = data.length - tai;
+
+    // ===== streak =====
+    let streak=1;
+    for(let i=data.length-2;i>=0;i--){
+        if(data[i]===last) streak++; else break;
+    }
+
+    // ===== dao =====
+    let dao = data.slice(-6).every((v,i,a)=>i===0||v!==a[i-1]);
+
+    // ===== chaos =====
+    let change=0;
+    for(let i=1;i<data.length;i++){
+        if(data[i]!==data[i-1]) change++;
+    }
+    let chaos = change>=9;
+
+    // ===== cầu nhạt =====
+    let weak = Math.abs(tai-xiu)<=2 && streak<=2;
+
+    if(chaos){
+        return {side: tai>xiu?"X":"T", reason:"Cầu LOẠN"};
+    }
+
+    if(streak>=5){
+        return {side: map[opposite], reason:"BẺ bệt "+streak};
+    }
+
+    if(streak>=3){
+        return {side: map[last], reason:"THEO bệt "+streak};
+    }
+
+    if(dao){
+        return {side: map[opposite], reason:"Cầu đảo"};
+    }
+
+    // 🔥 cầu nhạt chủ động
+    if(weak){
+        return {side: tai>xiu?"X":"T", reason:"Cầu nhạt → cân bằng"};
+    }
+
+    return {side: tai>=xiu?"T":"X", reason:"Cân bằng AI"};
+}
+
+// ===== PATTERN =====
+function getPattern(list){
+    if(list.length<8) return "---";
+    return list.slice(0,8).reverse().map(i=>i.resultTruyenThong==="TAI"?"T":"X").join("");
+}
+
+// ===== HISTORY =====
+function addRow(session,pred,result){
+    const table=document.getElementById("history");
+    const row=document.createElement("tr");
+
+    let win = (pred==="T"&&result==="TAI")||(pred==="X"&&result==="XIU");
+
+    if(win) winCount++;
+    else loseCount++;
+
+    let total = winCount + loseCount;
+    let rate = total ? ((winCount/total)*100).toFixed(1) : 0;
+
+    document.getElementById("stats").innerText =
+        `Win: ${winCount} | Lose: ${loseCount} | Rate: ${rate}%`;
+
+    row.innerHTML=`
+    <td>#${session}</td>
+    <td>${pred||"--"}</td>
+    <td>${result==="TAI"?"T":"X"}</td>
+    <td class="${win?'win':'lose'}">${win?"✔":"✘"}</td>
+    `;
+    table.prepend(row);
+    if(table.rows.length>8) table.deleteRow(8);
+}
+
+// ===== UPDATE =====
+async function update(){
+    try{
+        let res=await fetch(apiURL);
+        let json=await res.json();
+        let list=json.list;
+        if(!list) return;
+
+        document.getElementById("status").innerText="ĐÃ KẾT NỐI";
+
+        let latest=list[0];
+        let nextId=latest.id+1;
+
+        document.getElementById("clock").innerText=new Date().toLocaleTimeString();
+        document.getElementById("phienText").innerText="Phiên: "+nextId;
+
+        if(latest.id!==lastSessionId){
+
+            if(predictions[latest.id]){
+                addRow(latest.id,predictions[latest.id],latest.resultTruyenThong);
+            }
+
+            lastSessionId=latest.id;
+
+            let pattern=getPattern(list);
+            let ai=aiEngine(list);
+
+            document.getElementById("pattern-display").innerText="Chuỗi: "+pattern;
+            document.getElementById("ai-analysis").innerText=ai.reason;
+
+            let final = ai.side || (Math.random()<0.5?"T":"X");
+
+            predictions[nextId]=final;
+
+            let c=document.getElementById("prediction");
+            c.innerText = final==="T"?"Tài":"Xỉu";
+
+            c.classList.remove("glow-effect");
+            void c.offsetWidth;
+            c.classList.add("glow-effect");
+
+            if(Object.keys(predictions).length>100){
+                predictions={};
+            }
+        }
+
+    }catch(e){
+        document.getElementById("status").innerText="LỖI API";
+    }
+}
+
+setInterval(update,3000);
+</script>
+</body>
+</html>
